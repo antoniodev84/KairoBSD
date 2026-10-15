@@ -1,0 +1,40 @@
+MIT License
+
+Copyright (c) 2025 KarioBSD contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------
+
+Scope
+
+The MIT License above applies to the original KarioBSD source code:
+the kernel (kernel/), the C library (libc/), the userland (user/), the
+build system (Makefile, tools/, boot/kernel.ld, boot/limine.conf), and
+the shared headers (shared/include/).
+
+This repository also contains third-party software under different
+licenses. Those components are NOT covered by the MIT License above and
+retain their own terms. See third_party.md for the full inventory.
+
+In particular, the userland binaries /bin/as and /bin/ld are built from
+TinyCC (LGPL 2.1 or later) and therefore carry LGPL obligations even
+though they are distributed as part of a MIT-licensed operating system.
+The corresponding source and the object files needed to relink them with
+a modified TinyCC or libkario are provided by the KarioBSD build system.

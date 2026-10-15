@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export LD_LIBRARY_PATH="$base/tools/host/usr/lib/x86_64-linux-gnu:$base/tools/host/usr/lib/llvm-19/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+cmd=$1
+shift
+case "$cmd" in
+ clang) exec "$base/tools/host/usr/lib/llvm-19/bin/clang" "$@" ;;
+ ld.lld) exec "$base/tools/host/usr/lib/llvm-19/bin/ld.lld" "$@" ;;
+ qemu-system-x86_64) exec "$base/tools/host/usr/bin/qemu-system-x86_64" -L "$base/tools/host/usr/share/qemu" "$@" ;;
+ mke2fs|e2fsck|debugfs|dumpe2fs) exec "$base/tools/host/usr/sbin/$cmd" "$@" ;;
+ *) exec "$base/tools/host/usr/bin/$cmd" "$@" ;;
+esac

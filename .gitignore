@@ -1,0 +1,6 @@
+build/
+tools/host/
+tools/apt/
+tools/packages/
+boot/limine/.git/
+__pycache__/
