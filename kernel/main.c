@@ -66,6 +66,7 @@ NORETURN void kmain(void)
     if (time_request.response && time_request.response->boot_time > 0)
         boot_epoch = time_request.response->boot_time;
     kprintf("Discovering PCIe and block devices...\n");
+    net_init();
     pci_init();
     unsigned disks = block_count;
     for (unsigned i = 0; i < disks; i++)
@@ -98,6 +99,8 @@ NORETURN void kmain(void)
         }
     kprintf("Initializing scheduler...\n");
     sched_init();
+    if (!task_kernel(net_worker, 0))
+        panic("Network worker allocation failed");
     const char *args[] = {"/sbin/init", NULL};
     const char *env[] = {"PATH=/bin", "HOME=/", "TERM=kario", NULL};
     int pid = task_spawn("/sbin/init", NULL, args, env);

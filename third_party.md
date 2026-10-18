@@ -32,9 +32,10 @@ files needed to rebuild and relink the native tools with a modified
 libkario or a modified TinyCC.
 
 The x86-64 assembler and ELF linker are exposed as /bin/as and /bin/ld
-through user/toolchain/binutils.c. Configuration disables the -run
-feature, dynamic host loading, bounds instrumentation, and host
-semaphore dependencies. KarioBSD extensions implement local/common
+through user/toolchain/binutils.c. The source is specialized for the KarioBSD ELF64 x86-64 target. Inactive
+Windows, Mach-O, other CPU targets, and the disabled in-process execution
+runtime have been removed. Configuration disables dynamic host loading,
+bounds instrumentation, and host semaphore dependencies. KarioBSD extensions implement local/common
 symbols and the scalar SSE instructions emitted by chibicc. Target
 executables are static ELF64 binaries. Upstream source comments other
 than licensing notices have been removed.

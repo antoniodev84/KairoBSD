@@ -1309,3 +1309,30 @@ fail:
     kfree(f);
     return r;
 }
+
+int ext2_mounted_root(struct blockdev *disk, struct vnode **root)
+{
+    int result = -ENOENT;
+    spin_lock(&filesystems_lock);
+    for (struct ext_fs *fs = mounted_filesystems; fs; fs = fs->next) {
+        if (fs->disk != disk)
+            continue;
+        spin_lock(&fs->lock);
+        for (struct ext_node *entry = fs->nodes; entry; entry = entry->next) {
+            if (entry->vnode->ino != 2)
+                continue;
+            unsigned refs = atomic_load(&entry->vnode->refs);
+            while (refs && !atomic_compare_exchange_weak(&entry->vnode->refs, &refs, refs + 1)) {
+            }
+            if (refs) {
+                *root = entry->vnode;
+                result = 0;
+                break;
+            }
+        }
+        spin_unlock(&fs->lock);
+        break;
+    }
+    spin_unlock(&filesystems_lock);
+    return result;
+}

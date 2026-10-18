@@ -14,6 +14,7 @@
 #define O_TRUNC 512
 #define O_APPEND 1024
 #define O_DIRECTORY 65536
+#define O_NOSYMLINKS 1048576
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
@@ -137,6 +138,69 @@ struct ksignal_frame {
 #define EOVERFLOW 75
 #define ENOTSUP 95
 #define ETIMEDOUT 110
+#define AF_UNSPEC 0
+#define AF_INET 2
+#define SOCK_STREAM 1
+#define SOCK_DGRAM 2
+#define SOCK_RAW 3
+#define SOCK_NONBLOCK O_NONBLOCK
+#define SOCK_CLOEXEC O_CLOEXEC
+#define IPPROTO_ICMP 1
+#define IPPROTO_TCP 6
+#define IPPROTO_UDP 17
+#define S_IFSOCK 0140000
+#define SOL_SOCKET 1
+#define SO_TYPE 3
+#define SO_ERROR 4
+#define SO_ACCEPTCONN 30
+#define MSG_NOSIGNAL 16384
+#define MSG_PEEK 2
+#define MSG_DONTWAIT 64
+#define SHUT_RD 0
+#define SHUT_WR 1
+#define SHUT_RDWR 2
+#define EADDRINUSE 98
+#define EADDRNOTAVAIL 99
+#define ENETDOWN 100
+#define ENETUNREACH 101
+#define ECONNABORTED 103
+#define ECONNRESET 104
+#define ENOBUFS 105
+#define EISCONN 106
+#define ENOTCONN 107
+#define ECONNREFUSED 111
+#define EALREADY 114
+#define EINPROGRESS 115
+#define EMSGSIZE 90
+#define ENOTSOCK 88
+#define EDESTADDRREQ 89
+#define EPROTONOSUPPORT 93
+#define EAFNOSUPPORT 97
+struct in_addr {
+    uint32_t s_addr;
+};
+struct sockaddr {
+    uint16_t sa_family;
+    char sa_data[14];
+};
+struct sockaddr_in {
+    uint16_t sin_family, sin_port;
+    struct in_addr sin_addr;
+    uint8_t sin_zero[8];
+};
+#define NET_DHCP_DISABLED 0
+#define NET_DHCP_SELECTING 1
+#define NET_DHCP_REQUESTING 2
+#define NET_DHCP_PROBING 3
+#define NET_DHCP_BOUND 4
+#define NET_DHCP_RENEWING 5
+#define NET_DHCP_REBINDING 6
+struct knetconfig {
+    uint32_t index, address, netmask, gateway, dns[2], dhcp, dhcp_state;
+    uint64_t lease_remaining;
+    uint8_t mac[6];
+    uint16_t up;
+};
 struct kstat {
     uint64_t ino, size, blocks;
     uint32_t mode, nlink, uid, gid;
@@ -208,6 +272,20 @@ enum {
     SYS_setsid,
     SYS_tcgetpgrp,
     SYS_tcsetpgrp,
+    SYS_socket,
+    SYS_bind,
+    SYS_connect,
+    SYS_listen,
+    SYS_accept,
+    SYS_sendto,
+    SYS_recvfrom,
+    SYS_shutdown,
+    SYS_getsockname,
+    SYS_getpeername,
+    SYS_netconfig,
+    SYS_getsockopt,
+    SYS_chroot,
+    SYS_mountpoint,
     SYS_COUNT
 };
 #endif

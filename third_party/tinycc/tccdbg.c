@@ -88,13 +88,7 @@ static const struct {
 #define DWARF_LINE_RANGE 14
 #define DWARF_OPCODE_BASE 13
 
-#if defined TCC_TARGET_ARM64
-#define DWARF_MIN_INSTR_LEN 4
-#elif defined TCC_TARGET_ARM
-#define DWARF_MIN_INSTR_LEN 2
-#else
 #define DWARF_MIN_INSTR_LEN 1
-#endif
 
 #define DWARF_ABBREV_COMPILE_UNIT 1
 #define DWARF_ABBREV_BASE_TYPE 2
@@ -857,18 +851,6 @@ static void dwarf_file(TCCState *s1)
     return;
 }
 
-#if 0
-static int dwarf_uleb128_size (unsigned long long value)
-{
-    int size =  0;
-
-    do {
-        value >>= 7;
-        size++;
-    } while (value != 0);
-    return size;
-}
-#endif
 
 static int dwarf_sleb128_size(long long value)
 {
@@ -949,18 +931,6 @@ ST_FUNC void tcc_eh_frame_start(TCCState *s1)
     dwarf_data1(eh_frame_section, 'z');
     dwarf_data1(eh_frame_section, 'R');
     dwarf_data1(eh_frame_section, 0);
-#if defined TCC_TARGET_I386
-    dwarf_uleb128(eh_frame_section, 1);
-    dwarf_sleb128(eh_frame_section, -4);
-    dwarf_uleb128(eh_frame_section, 8);
-    dwarf_uleb128(eh_frame_section, 1);
-    dwarf_data1(eh_frame_section, FDE_ENCODING);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
-    dwarf_uleb128(eh_frame_section, 4);
-    dwarf_uleb128(eh_frame_section, 4);
-    dwarf_data1(eh_frame_section, DW_CFA_offset + 8);
-    dwarf_uleb128(eh_frame_section, 1);
-#elif defined TCC_TARGET_X86_64
     dwarf_uleb128(eh_frame_section, 1);
     dwarf_sleb128(eh_frame_section, -8);
     dwarf_uleb128(eh_frame_section, 16);
@@ -971,36 +941,6 @@ ST_FUNC void tcc_eh_frame_start(TCCState *s1)
     dwarf_uleb128(eh_frame_section, 8);
     dwarf_data1(eh_frame_section, DW_CFA_offset + 16);
     dwarf_uleb128(eh_frame_section, 1);
-#elif defined TCC_TARGET_ARM
-
-    dwarf_uleb128(eh_frame_section, 2);
-    dwarf_sleb128(eh_frame_section, -4);
-    dwarf_uleb128(eh_frame_section, 14);
-    dwarf_uleb128(eh_frame_section, 1);
-    dwarf_data1(eh_frame_section, FDE_ENCODING);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
-    dwarf_uleb128(eh_frame_section, 13);
-    dwarf_uleb128(eh_frame_section, 0);
-#elif defined TCC_TARGET_ARM64
-    dwarf_uleb128(eh_frame_section, 4);
-    dwarf_sleb128(eh_frame_section, -8);
-    dwarf_uleb128(eh_frame_section, 30);
-    dwarf_uleb128(eh_frame_section, 1);
-    dwarf_data1(eh_frame_section, FDE_ENCODING);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
-    dwarf_uleb128(eh_frame_section, 31);
-    dwarf_uleb128(eh_frame_section, 0);
-#elif defined TCC_TARGET_RISCV64
-    eh_frame_section->data[s1->eh_start + 8] = 3;
-    dwarf_uleb128(eh_frame_section, 1);
-    dwarf_sleb128(eh_frame_section, -4);
-    dwarf_uleb128(eh_frame_section, 1);
-    dwarf_uleb128(eh_frame_section, 1);
-    dwarf_data1(eh_frame_section, FDE_ENCODING);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
-    dwarf_uleb128(eh_frame_section, 2);
-    dwarf_uleb128(eh_frame_section, 0);
-#endif
     while ((eh_frame_section->data_offset - s1->eh_start) & 3)
         dwarf_data1(eh_frame_section, DW_CFA_nop);
     write32le(eh_frame_section->data + s1->eh_start,
@@ -1018,36 +958,10 @@ static void tcc_debug_frame_end(TCCState *s1, int size)
     fde_start = eh_frame_section->data_offset;
     dwarf_data4(eh_frame_section, 0);
     dwarf_data4(eh_frame_section, fde_start - s1->eh_start + 4);
-#if defined TCC_TARGET_I386
-    dwarf_reloc(eh_frame_section, eh_section_sym, R_386_PC32);
-#elif defined TCC_TARGET_X86_64
     dwarf_reloc(eh_frame_section, eh_section_sym, R_X86_64_PC32);
-#elif defined TCC_TARGET_ARM
-    dwarf_reloc(eh_frame_section, eh_section_sym, R_ARM_REL32);
-#elif defined TCC_TARGET_ARM64
-    dwarf_reloc(eh_frame_section, eh_section_sym, R_AARCH64_PREL32);
-#elif defined TCC_TARGET_RISCV64
-    dwarf_reloc(eh_frame_section, eh_section_sym, R_RISCV_32_PCREL);
-#endif
     dwarf_data4(eh_frame_section, func_ind);
     dwarf_data4(eh_frame_section, size);
     dwarf_data1(eh_frame_section, 0);
-#if defined TCC_TARGET_I386
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 1);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
-    dwarf_uleb128(eh_frame_section, 8);
-    dwarf_data1(eh_frame_section, DW_CFA_offset + 5);
-    dwarf_uleb128(eh_frame_section, 2);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 2);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_register);
-    dwarf_uleb128(eh_frame_section, 5);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc4);
-    dwarf_data4(eh_frame_section, size - 5);
-    dwarf_data1(eh_frame_section, DW_CFA_restore + 5);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
-    dwarf_uleb128(eh_frame_section, 4);
-    dwarf_uleb128(eh_frame_section, 4);
-#elif defined TCC_TARGET_X86_64
     dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 1);
     dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
     dwarf_uleb128(eh_frame_section, 16);
@@ -1061,64 +975,6 @@ static void tcc_debug_frame_end(TCCState *s1, int size)
     dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
     dwarf_uleb128(eh_frame_section, 7);
     dwarf_uleb128(eh_frame_section, 8);
-#elif defined TCC_TARGET_ARM
-
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 2);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
-    dwarf_uleb128(eh_frame_section, 8);
-    dwarf_data1(eh_frame_section, DW_CFA_offset + 14);
-    dwarf_uleb128(eh_frame_section, 1);
-    dwarf_data1(eh_frame_section, DW_CFA_offset + 11);
-    dwarf_uleb128(eh_frame_section, 2);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc4);
-    dwarf_data4(eh_frame_section, size / 2 - 5);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_register);
-    dwarf_uleb128(eh_frame_section, 11);
-#elif defined TCC_TARGET_ARM64
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 1);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
-    dwarf_uleb128(eh_frame_section, 224);
-    dwarf_data1(eh_frame_section, DW_CFA_offset + 29);
-    dwarf_uleb128(eh_frame_section, 28);
-    dwarf_data1(eh_frame_section, DW_CFA_offset + 30);
-    dwarf_uleb128(eh_frame_section, 27);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 3);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
-    dwarf_uleb128(eh_frame_section, 224 + ((-loc + 15) & ~15));
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc4);
-    dwarf_data4(eh_frame_section, size / 4 - 5);
-    dwarf_data1(eh_frame_section, DW_CFA_restore + 30);
-    dwarf_data1(eh_frame_section, DW_CFA_restore + 29);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
-    dwarf_uleb128(eh_frame_section, 0);
-#elif defined TCC_TARGET_RISCV64
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 4);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
-    dwarf_uleb128(eh_frame_section, 16);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 8);
-    dwarf_data1(eh_frame_section, DW_CFA_offset + 1);
-    dwarf_uleb128(eh_frame_section, 2);
-    dwarf_data1(eh_frame_section, DW_CFA_offset + 8);
-    dwarf_uleb128(eh_frame_section, 4);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 8);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
-    dwarf_uleb128(eh_frame_section, 8);
-    dwarf_uleb128(eh_frame_section, 0);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc4);
-    while (size >= 4 && read32le(cur_text_section->data + func_ind + size - 4) != 0x00008067)
-        size -= 4;
-    dwarf_data4(eh_frame_section, size - 36);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
-    dwarf_uleb128(eh_frame_section, 2);
-    dwarf_uleb128(eh_frame_section, 16);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 4);
-    dwarf_data1(eh_frame_section, DW_CFA_restore + 1);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 4);
-    dwarf_data1(eh_frame_section, DW_CFA_restore + 8);
-    dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 4);
-    dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
-    dwarf_uleb128(eh_frame_section, 0);
-#endif
     while ((eh_frame_section->data_offset - fde_start) & 3)
         dwarf_data1(eh_frame_section, DW_CFA_nop);
     write32le(eh_frame_section->data + fde_start, eh_frame_section->data_offset - fde_start - 4);
@@ -1244,9 +1100,6 @@ ST_FUNC void tcc_debug_start(TCCState *s1)
         n_debug_forw_hash_local = 0;
 
         getcwd(buf, sizeof(buf));
-#ifdef _WIN32
-        normalize_slashes(buf);
-#endif
 
         if (s1->dwarf) {
             int start_abbrev;
@@ -2400,19 +2253,7 @@ ST_FUNC void tcc_debug_funcend(TCCState *s1, int size)
         func_sib = dwarf_info_section->data_offset;
         dwarf_data4(dwarf_info_section, 0);
         dwarf_data1(dwarf_info_section, 1);
-#if defined(TCC_TARGET_I386)
-        dwarf_data1(dwarf_info_section, DW_OP_reg5);
-#elif defined(TCC_TARGET_X86_64)
         dwarf_data1(dwarf_info_section, DW_OP_reg6);
-#elif defined TCC_TARGET_ARM
-        dwarf_data1(dwarf_info_section, DW_OP_reg13);
-#elif defined TCC_TARGET_ARM64
-        dwarf_data1(dwarf_info_section, DW_OP_reg29);
-#elif defined TCC_TARGET_RISCV64
-        dwarf_data1(dwarf_info_section, DW_OP_reg8);
-#else
-        dwarf_data1(dwarf_info_section, DW_OP_call_frame_cfa);
-#endif
         tcc_debug_finish(s1, debug_info_root);
         dwarf_data1(dwarf_info_section, 0);
         write32le(dwarf_info_section->data + func_sib,
@@ -2532,9 +2373,6 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
         }
         ptr = section_ptr_add(tcov_section, cstr.size + 1);
         strcpy((char *)ptr, cstr.data);
-#ifdef _WIN32
-        normalize_slashes((char *)ptr);
-#endif
         cstr_free(&cstr);
     }
     if (tcov_data.last_func_name == 0 ||

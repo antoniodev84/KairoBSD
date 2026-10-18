@@ -1,3 +1,4 @@
+#include "../include/command.h"
 #include <libkario.h>
 static int copy_file(int in, int out)
 {
@@ -127,9 +128,32 @@ static int mkdir_parents(const char *path)
 }
 int main(int argc, char **argv)
 {
-    const char *name = strrchr(argv[0], '/');
-    name = name ? name + 1 : argv[0];
-    if (!strcmp(name, "kill")) {
+    const char *name = KAIRO_APP_NAME;
+    if (command_is(chroot)) {
+        if (argc == 2 && !strcmp(argv[1], "--help")) {
+            puts("usage: chroot [--] NEWROOT [COMMAND [ARG...]]");
+            return 0;
+        }
+        int at = argc > 1 && !strcmp(argv[1], "--") ? 2 : 1;
+        if (at >= argc) {
+            fprintf(stderr, "usage: chroot [--] NEWROOT [COMMAND [ARG...]]\n");
+            return 125;
+        }
+        if (chroot(argv[at]) || chdir("/")) {
+            perror("chroot");
+            return 125;
+        }
+        if (++at < argc) {
+            execvp(argv[at], argv + at);
+        } else {
+            char *shell[] = {"/bin/sh", NULL};
+            execve(shell[0], shell, environ);
+        }
+        int error = errno;
+        perror("chroot command");
+        return error == ENOENT ? 127 : 126;
+    }
+    if (command_is(kill)) {
         int signo = SIGTERM, start = 1;
         if (argc > 1 && argv[1][0] == '-') {
             const char *value = argv[1] + 1;
@@ -166,7 +190,7 @@ int main(int argc, char **argv)
         }
         return result;
     }
-    if (!strcmp(name, "echo")) {
+    if (command_is(echo)) {
         int start = 1;
         bool newline = true;
         if (argc > 1 && !strcmp(argv[1], "-n")) {
@@ -182,7 +206,7 @@ int main(int argc, char **argv)
             putchar('\n');
         return ferror(stdout) ? 1 : 0;
     }
-    if (!strcmp(name, "cat")) {
+    if (command_is(cat)) {
         if (argc == 1) {
             if (copy_file(0, 1)) {
                 perror("cat");
@@ -207,7 +231,7 @@ int main(int argc, char **argv)
         }
         return status;
     }
-    if (!strcmp(name, "ls")) {
+    if (command_is(ls)) {
         bool detailed = argc > 1 && !strcmp(argv[1], "-l");
         int start = detailed ? 2 : 1, status = 0;
         if (start == argc)
@@ -216,7 +240,7 @@ int main(int argc, char **argv)
             status |= list(argv[i], detailed);
         return status;
     }
-    if (!strcmp(name, "pwd")) {
+    if (command_is(pwd)) {
         char p[PATH_MAX];
         if (!getcwd(p, sizeof(p))) {
             perror("pwd");
@@ -225,7 +249,7 @@ int main(int argc, char **argv)
         puts(p);
         return 0;
     }
-    if (!strcmp(name, "mkdir")) {
+    if (command_is(mkdir)) {
         bool parents = argc > 1 && !strcmp(argv[1], "-p");
         int start = parents ? 2 : 1, status = 0;
         if (argc <= start) {
@@ -239,7 +263,7 @@ int main(int argc, char **argv)
             }
         return status;
     }
-    if (!strcmp(name, "rm")) {
+    if (command_is(rm)) {
         bool recursive = argc > 1 && (!strcmp(argv[1], "-r") || !strcmp(argv[1], "-rf"));
         int start = recursive ? 2 : 1, status = 0;
         if (argc <= start) {
@@ -253,15 +277,15 @@ int main(int argc, char **argv)
             }
         return status;
     }
-    if (!strcmp(name, "uname") || !strcmp(name, "meminfo") || !strcmp(name, "uptime")) {
+    if (command_is(uname) || command_is(meminfo) || command_is(uptime)) {
         struct ksysinfo s;
         if (sysinfo(&s)) {
             perror(name);
             return 1;
         }
-        if (!strcmp(name, "uname"))
+        if (command_is(uname))
             printf("KarioBSD %s x86_64\n", s.release);
-        else if (!strcmp(name, "meminfo"))
+        else if (command_is(meminfo))
             printf("Total: %lu KiB\nFree: %lu KiB\nReserved: %lu KiB\nCPUs: %u\n", s.total / 1024,
                    s.free / 1024, s.reserved / 1024, s.cpus);
         else
@@ -269,7 +293,7 @@ int main(int argc, char **argv)
                    (s.uptime_ns / 1000000UL) % 1000);
         return 0;
     }
-    if (!strcmp(name, "ln")) {
+    if (command_is(ln)) {
         bool symbolic = argc > 1 && !strcmp(argv[1], "-s");
         int start = symbolic ? 2 : 1;
         if (argc != start + 2) {
@@ -282,7 +306,7 @@ int main(int argc, char **argv)
         }
         return 0;
     }
-    if (!strcmp(name, "chmod")) {
+    if (command_is(chmod)) {
         if (argc < 3) {
             fprintf(stderr, "usage: chmod octal-mode path...\n");
             return 1;
@@ -302,7 +326,7 @@ int main(int argc, char **argv)
             }
         return status;
     }
-    if (!strcmp(name, "partscan")) {
+    if (command_is(partscan)) {
         if (argc != 2) {
             fprintf(stderr, "usage: partscan /dev/disk\n");
             return 1;
@@ -313,7 +337,7 @@ int main(int argc, char **argv)
         }
         return 0;
     }
-    if (!strcmp(name, "mount")) {
+    if (command_is(mount)) {
         if (argc != 3) {
             fprintf(stderr, "usage: mount /dev/disk mountpoint\n");
             return 1;
@@ -324,7 +348,7 @@ int main(int argc, char **argv)
         }
         return 0;
     }
-    if (!strcmp(name, "stat")) {
+    if (command_is(stat)) {
         if (argc < 2) {
             fprintf(stderr, "usage: stat path...\n");
             return 1;
@@ -341,7 +365,7 @@ int main(int argc, char **argv)
         }
         return status;
     }
-    if (!strcmp(name, "cp")) {
+    if (command_is(cp)) {
         if (argc != 3) {
             fprintf(stderr, "usage: cp source destination\n");
             return 1;
@@ -364,7 +388,7 @@ int main(int argc, char **argv)
         close(dest);
         return r ? 1 : 0;
     }
-    if (!strcmp(name, "sleep")) {
+    if (command_is(sleep)) {
         if (argc != 2) {
             fprintf(stderr, "usage: sleep seconds\n");
             return 1;
@@ -383,9 +407,9 @@ int main(int argc, char **argv)
         }
         return 0;
     }
-    if (!strcmp(name, "true"))
+    if (command_is(true))
         return 0;
-    if (!strcmp(name, "false"))
+    if (command_is(false))
         return 1;
     fprintf(stderr, "Unknown utility: %s\n", name);
     return 127;

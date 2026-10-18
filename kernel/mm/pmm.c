@@ -143,3 +143,42 @@ void memory_info(struct ksysinfo *s)
     spin_unlock(&lock);
     irq_restore(f);
 }
+uint64_t dma_alloc(unsigned count, uint64_t limit)
+{
+    if (!count)
+        return 0;
+    uint64_t flags = irq_save();
+    spin_lock(&lock);
+    uint64_t end = limit / PAGE_SIZE;
+    if (end > pages)
+        end = pages;
+    unsigned run = 0;
+    uint64_t base = 0;
+    for (uint64_t i = 1; i < end; i++) {
+        if (bit(i)) {
+            run = 0;
+            continue;
+        }
+        if (!run)
+            base = i;
+        if (++run != count)
+            continue;
+        for (unsigned j = 0; j < count; j++) {
+            mark(base + j, true);
+            refs[base + j] = 1;
+        }
+        free_pages -= count;
+        spin_unlock(&lock);
+        irq_restore(flags);
+        memset(phys_ptr(base * PAGE_SIZE), 0, count * PAGE_SIZE);
+        return base * PAGE_SIZE;
+    }
+    spin_unlock(&lock);
+    irq_restore(flags);
+    return 0;
+}
+void dma_free(uint64_t base, unsigned count)
+{
+    for (unsigned i = 0; i < count; i++)
+        frame_put(base + i * PAGE_SIZE);
+}

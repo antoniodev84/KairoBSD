@@ -123,12 +123,17 @@ static void scan(uint16_t segment, unsigned first, unsigned last)
                 kprintf("PCI %u:%02x:%02x.%u %04x:%04x class %02x:%02x\n", segment, b, s, f,
                         d.vendor, d.device, d.class, d.subclass);
                 int r = 0;
-                if (d.vendor == 0x1af4 && (d.device == 0x1042 || d.device == 0x1001))
+                if (d.vendor == 0x10ec && d.device == 0x8139)
+                    r = rtl8139_probe(&d);
+                else if (d.vendor == 0x8086 &&
+                         (d.device == 0x10d3 || d.device == 0x100e || d.device == 0x100f))
+                    r = e1000_probe(&d);
+                else if (d.vendor == 0x1af4 && (d.device == 0x1042 || d.device == 0x1001))
                     r = virtio_probe(&d);
                 else if (d.class == 1 && d.subclass == 6 && d.progif == 1)
                     r = ahci_probe(&d);
                 if (r)
-                    kprintf("Storage probe error %d\n", r);
+                    kprintf("PCI probe error %d\n", r);
             }
         }
 }

@@ -33,8 +33,9 @@ static int cwd_path(struct vnode *node, char *out)
     char path[PATH_MAX] = {0};
     size_t used = 0;
     struct vnode *n = node;
+    struct vnode *boundary = vfs_task_root();
     vnode_get(n);
-    for (unsigned depth = 0; n != vfs_root && depth < 128; depth++) {
+    for (unsigned depth = 0; !vnode_same(n, boundary) && depth < 128; depth++) {
         struct vnode *parent = n->parent;
         if (!parent || parent == n) {
             vnode_put(n);
@@ -76,7 +77,7 @@ static int cwd_path(struct vnode *node, char *out)
         vnode_put(n);
         n = parent;
     }
-    if (n != vfs_root) {
+    if (!vnode_same(n, boundary)) {
         vnode_put(n);
         return -ELOOP;
     }
@@ -120,6 +121,32 @@ static int64_t syscall_run(struct task *t, struct frame *f, bool *resched)
     struct vnode *n;
     int r;
     switch (f->rax) {
+        case SYS_socket:
+            return net_socket(t, a, b, c);
+        case SYS_bind:
+        case SYS_connect:
+        case SYS_listen:
+        case SYS_accept:
+        case SYS_sendto:
+        case SYS_recvfrom:
+        case SYS_shutdown:
+        case SYS_getsockname:
+        case SYS_getpeername:
+        case SYS_getsockopt:
+        case SYS_netconfig: {
+            r = net_control(t, f->rax, a, b, c, d, e, g);
+            bool nonblock = a < MAX_FDS && t->fds[a] && (t->fds[a]->flags & O_NONBLOCK);
+            if ((f->rax == SYS_sendto || f->rax == SYS_recvfrom) && (d & MSG_DONTWAIT))
+                nonblock = true;
+            if (r == -EAGAIN && !nonblock && f->rax != SYS_netconfig) {
+                block_retry(t, f, 10000000);
+                *resched = true;
+                return f->rax;
+            }
+            if (r == -EPIPE && f->rax == SYS_sendto && !(d & MSG_NOSIGNAL))
+                signal_queue_self(SIGPIPE);
+            return r;
+        }
         case SYS_pipe2: {
             if (!user_range(t->root, a, 2 * sizeof(int), true))
                 return -EFAULT;
@@ -199,13 +226,7 @@ static int64_t syscall_run(struct task *t, struct frame *f, bool *resched)
             struct file *file = fd_get(t, a);
             if (!file)
                 return -EBADF;
-            struct vnode *console;
-            r = vfs_lookup("/dev/console", t->cwd, true, &console);
-            if (r)
-                return r;
-            bool match = console == file->node;
-            vnode_put(console);
-            if (!match)
+            if (!devfs_is_console(file->node))
                 return -ENOTTY;
             return terminal_group((int)b, f->rax == SYS_tcsetpgrp);
         }
@@ -274,7 +295,8 @@ static int64_t syscall_run(struct task *t, struct frame *f, bool *resched)
             struct file *file = fd_get(t, a);
             if (!file)
                 return -EBADF;
-            if ((file->node->mode & S_IFMT) == S_IFCHR || (file->node->mode & S_IFMT) == S_IFIFO)
+            if ((file->node->mode & S_IFMT) == S_IFCHR || (file->node->mode & S_IFMT) == S_IFIFO ||
+                (file->node->mode & S_IFMT) == S_IFSOCK)
                 return -ESPIPE;
             if (c > 2)
                 return -EINVAL;
@@ -516,6 +538,29 @@ static int64_t syscall_run(struct task *t, struct frame *f, bool *resched)
             *resched = true;
             return SYS_waitpid;
         }
+        case SYS_chroot: {
+            if (t->uid)
+                return -EPERM;
+            r = path_copy(path, a);
+            if (r)
+                return r;
+            r = vfs_lookup(path, t->cwd, true, &n);
+            if (r)
+                return r;
+            if (!S_ISDIR(n->mode)) {
+                vnode_put(n);
+                return -ENOTDIR;
+            }
+            r = vfs_access(n, 1);
+            if (r) {
+                vnode_put(n);
+                return r;
+            }
+            struct vnode *previous = t->fs_root;
+            t->fs_root = n;
+            vnode_put(previous);
+            return 0;
+        }
         case SYS_chdir: {
             r = path_copy(path, a);
             if (r)
@@ -689,6 +734,33 @@ static int64_t syscall_run(struct task *t, struct frame *f, bool *resched)
             spin_unlock(&partition_lock);
             return r;
         }
+        case SYS_mountpoint: {
+            r = path_copy(path, a);
+            if (r)
+                return r;
+            const char *name = path;
+            if (!strncmp(name, "/dev/", 5))
+                name += 5;
+            struct blockdev *disk = NULL;
+            for (unsigned i = 0; i < block_count; i++)
+                if (!strcmp(name, blocks[i].name))
+                    disk = &blocks[i];
+            if (!disk)
+                return -ENODEV;
+            if (!disk->parent)
+                return -EINVAL;
+            r = ext2_mounted_root(disk, &n);
+            if (r)
+                return r;
+            r = cwd_path(n, path);
+            vnode_put(n);
+            if (r)
+                return r;
+            size_t size = strlen(path) + 1;
+            if (size > c)
+                return -ERANGE;
+            return copy_out(b, path, size);
+        }
         case SYS_mount: {
             if (t->uid)
                 return -EPERM;
@@ -699,6 +771,18 @@ static int64_t syscall_run(struct task *t, struct frame *f, bool *resched)
             r = path_copy(target, b);
             if (r)
                 return r;
+            bool device_fs = !strcmp(path, "devfs");
+            bool memory_fs = !strcmp(path, "tmpfs");
+            if (device_fs || memory_fs) {
+                n = device_fs ? devfs_new() : tmpfs_new(S_IFDIR | 01777);
+                if (!n)
+                    return -ENOMEM;
+                r = vfs_mount(target, t->cwd, n);
+                if (r && device_fs)
+                    devfs_forget(n);
+                vnode_put(n);
+                return r;
+            }
             const char *name = path;
             if (!strncmp(name, "/dev/", 5))
                 name += 5;

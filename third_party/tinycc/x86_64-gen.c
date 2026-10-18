@@ -146,9 +146,6 @@ static unsigned long func_bound_ind;
 ST_DATA int func_bound_add_epilog;
 #endif
 
-#ifdef TCC_TARGET_PE
-static int func_scratch, func_alloca;
-#endif
 
 ST_FUNC void g(int c)
 {
@@ -254,11 +251,6 @@ ST_FUNC void gen_addrpc32(int r, Sym *sym, int c)
 
 static void gen_gotpcrel(int r, Sym *sym, int c)
 {
-#ifdef TCC_TARGET_PE
-    tcc_error("internal error: no GOT on PE: %s %x %x | %02x %02x %02x\n",
-              get_tok_str(sym->v, NULL), c, r, cur_text_section->data[ind - 3],
-              cur_text_section->data[ind - 2], cur_text_section->data[ind - 1]);
-#endif
     greloca(cur_text_section, sym, ind, R_X86_64_GOTPCREL, -4);
     gen_le32(0);
     if (c) {
@@ -274,22 +266,11 @@ static void gen_modrm_impl(int opcode, int ll, int op_reg_0, int r, Sym *sym, in
     int op_reg = REG_VALUE(op_reg_0) << 3;
 
     if ((r & VT_SYM) && (sym->type.t & VT_TLS)) {
-#ifdef TCC_TARGET_PE
-        Sym *s2 = external_global_sym(TOK___tls_index, &int_type);
-        r = get_reg(RC_INT);
-        gen_modrm_impl(0x8B, 0, r, VT_SYM | VT_CONST, s2, 0);
-        o(0x03e0c148 | r << 16);
-        o(0x4865), oad(0x250403 | r << 11, 11 * PTR_SIZE);
-        gen_modrm_impl(0x8B, 1, r, r | VT_LVAL, 0, 0);
-        orex(ll, r, op_reg_0, opcode), oad(0x80 | op_reg | r, 0);
-        greloca(cur_text_section, sym, ind - 4, R_X86_64_TPOFF32, c);
-#else
         o(0x64);
         orex(ll, r, op_reg_0, opcode);
         o(0x04 | op_reg);
         oad(0x25, 0);
         greloca(cur_text_section, sym, ind - 4, R_X86_64_TPOFF32, c);
-#endif
         return;
     }
 
@@ -351,7 +332,6 @@ void load(int r, SValue *sv)
     if (fc != sv->c.i && (fr & VT_SYM))
         tcc_error("64 bit addend in load");
 
-#ifndef TCC_TARGET_PE
 
     if ((fr & (VT_VALMASK | VT_SYM | VT_LVAL)) == (VT_CONST | VT_SYM | VT_LVAL) &&
         !(sv->sym->type.t & (VT_STATIC | VT_TLS))) {
@@ -365,7 +345,6 @@ void load(int r, SValue *sv)
 
         fr = tr | VT_LVAL;
     }
-#endif
 
     v = fr & VT_VALMASK;
     if (fr & VT_LVAL) {
@@ -444,9 +423,6 @@ void load(int r, SValue *sv)
     } else {
         if (v == VT_CONST) {
             if (fr & VT_SYM) {
-#ifdef TCC_TARGET_PE
-                gen_modrm64(0x8d, r, fr, sv->sym, fc);
-#else
                 if (sv->sym->type.t & VT_TLS) {
 
                     o(0x64), gen_modrm64(0x8b, r, VT_CONST, NULL, 0);
@@ -462,7 +438,6 @@ void load(int r, SValue *sv)
                     o(0x05 + REG_VALUE(r) * 8);
                     gen_gotpcrel(r, sv->sym, fc);
                 }
-#endif
             } else if (is64_type(ft)) {
                 if (sv->c.i >> 32) {
                     orex(1, r, 0, 0xb8 + REG_VALUE(r));
@@ -548,7 +523,6 @@ void store(int r, SValue *v)
         tcc_error("64 bit addend in store");
     bt = v->type.t & VT_BTYPE;
 
-#ifndef TCC_TARGET_PE
 
     if ((fr & (VT_VALMASK | VT_SYM)) == (VT_CONST | VT_SYM) &&
         !(v->sym->type.t & (VT_STATIC | VT_TLS))) {
@@ -557,7 +531,6 @@ void store(int r, SValue *v)
         gen_gotpcrel(TREG_R11, v->sym, v->c.i);
         fr = TREG_R11 | VT_LVAL;
     }
-#endif
 
     if (bt == VT_FLOAT) {
         opc = 0x7e0f66;
@@ -608,11 +581,7 @@ static void gen_bounds_call(int v)
     greloca(cur_text_section, sym, ind - 4, R_X86_64_PLT32, -4);
 }
 
-#ifdef TCC_TARGET_PE
-#define TREG_FASTCALL_1 TREG_RCX
-#else
 #define TREG_FASTCALL_1 TREG_RDI
-#endif
 
 static void gen_bounds_prolog(void)
 {
@@ -666,314 +635,6 @@ static void gen_bounds_epilog(void)
 }
 #endif
 
-#ifdef TCC_TARGET_PE
-
-#define REGN 4
-static const uint8_t arg_regs[REGN] = {TREG_RCX, TREG_RDX, TREG_R8, TREG_R9};
-
-static int arg_prepare_reg(int idx)
-{
-    if (idx == 0 || idx == 1)
-
-        return idx + 10;
-    else
-        return idx >= 0 && idx < REGN ? arg_regs[idx] : 0;
-}
-
-static void gen_offs_sp(int b, int r, int d)
-{
-    orex(1, 0, r & 0x100 ? 0 : r, b);
-    if (d == (signed char)d) {
-        o(0x2444 | (REG_VALUE(r) << 3));
-        g(d);
-    } else {
-        o(0x2484 | (REG_VALUE(r) << 3));
-        gen_le32(d);
-    }
-}
-
-static int using_regs(int size)
-{
-    return !(size > 8 || (size & (size - 1)));
-}
-
-ST_FUNC int gfunc_sret(CType *vt, int variadic, CType *ret, int *ret_align, int *regsize)
-{
-    int size, align;
-    *ret_align = 1;
-    *regsize = 8;
-    size = type_size(vt, &align);
-    if (!using_regs(size))
-        return 0;
-    if (size == 8)
-        ret->t = VT_LLONG;
-    else if (size == 4)
-        ret->t = VT_INT;
-    else if (size == 2)
-        ret->t = VT_SHORT;
-    else
-        ret->t = VT_BYTE;
-    ret->ref = NULL;
-    return 1;
-}
-
-static int is_sse_float(int t)
-{
-    int bt;
-    bt = t & VT_BTYPE;
-    return bt == VT_DOUBLE || bt == VT_FLOAT;
-}
-
-static int gfunc_arg_size(CType *type)
-{
-    int align;
-    if (type->t & (VT_ARRAY | VT_BITFIELD))
-        return 8;
-    return type_size(type, &align);
-}
-
-void gfunc_call(int nb_args)
-{
-    int size, r, args_size, i, d, bt, struct_size;
-    int arg;
-
-#ifdef CONFIG_TCC_BCHECK
-    if (tcc_state->do_bounds_check)
-        gbound_args(nb_args);
-#endif
-
-    save_regs(nb_args);
-
-    args_size = (nb_args < REGN ? REGN : nb_args) * PTR_SIZE;
-    arg = nb_args;
-
-    struct_size = args_size;
-    for (i = 0; i < nb_args; i++) {
-        SValue *sv;
-
-        --arg;
-        sv = &vtop[-i];
-        bt = (sv->type.t & VT_BTYPE);
-        size = gfunc_arg_size(&sv->type);
-
-        if (using_regs(size))
-            continue;
-
-        if (bt == VT_STRUCT) {
-
-            size = (size + 15) & ~15;
-
-            r = get_reg(RC_INT);
-            gen_offs_sp(0x8d, r, struct_size);
-            struct_size += size;
-
-            vset(&sv->type, r | VT_LVAL, 0);
-            vpushv(sv);
-            vstore();
-            --vtop;
-        } else if (bt == VT_LDOUBLE) {
-            gv(RC_ST0);
-            gen_offs_sp(0xdb, 0x107, struct_size);
-            struct_size += 16;
-        }
-    }
-
-    if (func_scratch < struct_size)
-        func_scratch = struct_size;
-
-    arg = nb_args;
-    struct_size = args_size;
-
-    for (i = 0; i < nb_args; i++) {
-        --arg;
-        bt = (vtop->type.t & VT_BTYPE);
-
-        size = gfunc_arg_size(&vtop->type);
-        if (!using_regs(size)) {
-
-            size = (size + 15) & ~15;
-            if (arg >= REGN) {
-                d = get_reg(RC_INT);
-                gen_offs_sp(0x8d, d, struct_size);
-                gen_offs_sp(0x89, d, arg * 8);
-            } else {
-                d = arg_prepare_reg(arg);
-                gen_offs_sp(0x8d, d, struct_size);
-            }
-            struct_size += size;
-        } else {
-            if (is_sse_float(vtop->type.t)) {
-                if (tcc_state->nosse)
-                    tcc_error("SSE disabled");
-                if (arg >= REGN) {
-                    gv(RC_XMM0);
-
-                    gen_offs_sp(0xd60f66, 0x100, arg * 8);
-                } else {
-
-                    gv(RC_XMM0 << arg);
-                    d = arg_prepare_reg(arg);
-
-                    o(0x66);
-                    orex(1, d, 0, 0x7e0f);
-                    o(0xc0 + arg * 8 + REG_VALUE(d));
-                }
-            } else {
-                if (bt == VT_STRUCT) {
-                    vtop->type.ref = NULL;
-                    vtop->type.t = size > 4   ? VT_LLONG
-                                   : size > 2 ? VT_INT
-                                   : size > 1 ? VT_SHORT
-                                              : VT_BYTE;
-                }
-
-                r = gv(RC_INT);
-                if (arg >= REGN) {
-                    gen_offs_sp(0x89, r, arg * 8);
-                } else {
-                    d = arg_prepare_reg(arg);
-                    orex(1, d, r, 0x89);
-                    o(0xc0 + REG_VALUE(r) * 8 + REG_VALUE(d));
-                }
-            }
-        }
-        vtop--;
-    }
-
-    if (nb_args > 0) {
-        o(0xd1894c);
-        if (nb_args > 1) {
-            o(0xda894c);
-        }
-    }
-
-    gcall_or_jmp(0);
-
-    if ((vtop->r & VT_SYM) && vtop->sym->v == TOK_alloca) {
-
-        o(0x48);
-        func_alloca = oad(0x05, func_alloca);
-#ifdef CONFIG_TCC_BCHECK
-        if (tcc_state->do_bounds_check)
-            gen_bounds_call(TOK___bound_alloca_nr);
-#endif
-    }
-    vtop--;
-}
-
-#define FUNC_PROLOG_SIZE 11
-
-void gfunc_prolog(Sym *func_sym)
-{
-    CType *func_type = &func_sym->type;
-    int addr, reg_param_index, bt, size;
-    Sym *sym;
-    CType *type;
-
-    func_ret_sub = 0;
-    func_scratch = 32;
-    func_alloca = 0;
-    loc = 0;
-
-    addr = PTR_SIZE * 2;
-    ind += FUNC_PROLOG_SIZE;
-    func_sub_sp_offset = ind;
-    reg_param_index = 0;
-
-    sym = func_type->ref;
-
-    size = gfunc_arg_size(&func_vt);
-    if (!using_regs(size)) {
-        gen_modrm64(0x89, arg_regs[reg_param_index], VT_LOCAL, NULL, addr);
-        func_vc = addr;
-        reg_param_index++;
-        addr += 8;
-    }
-
-    while ((sym = sym->next) != NULL) {
-        type = &sym->type;
-        bt = type->t & VT_BTYPE;
-        size = gfunc_arg_size(type);
-        if (!using_regs(size)) {
-            if (reg_param_index < REGN) {
-                gen_modrm64(0x89, arg_regs[reg_param_index], VT_LOCAL, NULL, addr);
-            }
-            gfunc_set_param(sym, addr, 1);
-        } else {
-            if (reg_param_index < REGN) {
-
-                if ((bt == VT_FLOAT) || (bt == VT_DOUBLE)) {
-                    if (tcc_state->nosse)
-                        tcc_error("SSE disabled");
-
-                    gen_modrm32(0xd60f66, reg_param_index, VT_LOCAL, NULL, addr);
-                } else {
-                    gen_modrm64(0x89, arg_regs[reg_param_index], VT_LOCAL, NULL, addr);
-                }
-            }
-            gfunc_set_param(sym, addr, 0);
-        }
-        addr += 8;
-        reg_param_index++;
-    }
-
-    while (reg_param_index < REGN) {
-        if (func_var) {
-            gen_modrm64(0x89, arg_regs[reg_param_index], VT_LOCAL, NULL, addr);
-            addr += 8;
-        }
-        reg_param_index++;
-    }
-#ifdef CONFIG_TCC_BCHECK
-    if (tcc_state->do_bounds_check)
-        gen_bounds_prolog();
-#endif
-}
-
-void gfunc_epilog(void)
-{
-    int v, start;
-
-    func_scratch = (func_scratch + 15) & -16;
-    loc = (loc & -16) - func_scratch;
-
-#ifdef CONFIG_TCC_BCHECK
-    if (tcc_state->do_bounds_check)
-        gen_bounds_epilog();
-#endif
-
-    o(0xc9);
-    if (func_ret_sub == 0) {
-        o(0xc3);
-    } else {
-        o(0xc2);
-        g(func_ret_sub);
-        g(func_ret_sub >> 8);
-    }
-
-    v = -loc;
-    start = func_sub_sp_offset - FUNC_PROLOG_SIZE;
-    cur_text_section->data_offset = ind;
-    pe_add_unwind_data(start, ind, v);
-
-    ind = start;
-    if (v >= 4096) {
-        Sym *sym = external_helper_sym(TOK___chkstk);
-        oad(0xb8, v);
-        oad(0xe8, 0);
-        greloca(cur_text_section, sym, ind - 4, R_X86_64_PLT32, -4);
-        o(0x90);
-    } else {
-        o(0xe5894855);
-        o(0xec8148);
-        gen_le32(v);
-    }
-    ind = cur_text_section->data_offset;
-
-    gsym_addr(func_alloca, -func_scratch);
-}
-
-#else
 
 static void gadd_sp(int val)
 {
@@ -1523,7 +1184,6 @@ void gfunc_epilog(void)
     ind = saved_ind;
 }
 
-#endif
 
 ST_FUNC void gen_fill_nops(int bytes)
 {
@@ -2092,14 +1752,6 @@ ST_FUNC void gen_vla_sp_restore(int addr)
     gen_modrm64(0x8b, TREG_RSP, VT_LOCAL, NULL, addr);
 }
 
-#ifdef TCC_TARGET_PE
-
-ST_FUNC void gen_vla_result(int addr)
-{
-
-    gen_modrm64(0x89, TREG_RAX, VT_LOCAL, NULL, addr);
-}
-#endif
 
 ST_FUNC void gen_vla_alloc(CType *type, int align)
 {
@@ -2107,9 +1759,6 @@ ST_FUNC void gen_vla_alloc(CType *type, int align)
 
 #if defined(CONFIG_TCC_BCHECK)
     use_call = tcc_state->do_bounds_check;
-#endif
-#ifdef TCC_TARGET_PE
-    use_call = 1;
 #endif
     if (use_call) {
         vpush_helper_func(TOK_alloca);
@@ -2130,9 +1779,6 @@ ST_FUNC void gen_vla_alloc(CType *type, int align)
 ST_FUNC void gen_struct_copy(int size)
 {
     int n = size / PTR_SIZE;
-#ifdef TCC_TARGET_PE
-    o(0x5756);
-#endif
     gv2(RC_RDI, RC_RSI);
     if (n <= 4) {
         while (n)
@@ -2149,9 +1795,6 @@ ST_FUNC void gen_struct_copy(int size)
         o(0xa566);
     if (size & 0x01)
         o(0xa4);
-#ifdef TCC_TARGET_PE
-    o(0x5e5f);
-#endif
     vpop();
     vpop();
 }

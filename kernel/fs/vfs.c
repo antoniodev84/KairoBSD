@@ -1,6 +1,26 @@
 #include <kernel.h>
 struct vnode *vfs_root;
 static spinlock_t mount_lock = SPINLOCK_INIT;
+bool vnode_same(struct vnode *a, struct vnode *b)
+{
+    return a == b || (a && b && a->fs == b->fs && a->ino == b->ino);
+}
+struct vnode *vfs_task_root(void)
+{
+    struct task *task = this_cpu()->current;
+    return task && !task->kernel && task->fs_root ? task->fs_root : vfs_root;
+}
+static bool within_root(struct vnode *node, struct vnode *root)
+{
+    for (unsigned depth = 0; node && depth < PATH_MAX; depth++) {
+        if (vnode_same(node, root))
+            return true;
+        if (!node->parent || vnode_same(node, node->parent))
+            return false;
+        node = node->parent;
+    }
+    return false;
+}
 int vfs_access(struct vnode *n, unsigned bits)
 {
     struct task *t = this_cpu()->current;
@@ -22,8 +42,8 @@ void vnode_put(struct vnode *n)
         kfree(n);
     }
 }
-static int resolve(const char *path, struct vnode *cwd, bool follow, unsigned depth,
-                   struct vnode **out)
+static int resolve(const char *path, struct vnode *cwd, bool follow, bool no_symlinks,
+                   unsigned depth, struct vnode **out)
 {
     if (!path || !*path)
         return -ENOENT;
@@ -31,7 +51,10 @@ static int resolve(const char *path, struct vnode *cwd, bool follow, unsigned de
         return -ELOOP;
     if (strlen(path) >= PATH_MAX)
         return -ENAMETOOLONG;
-    struct vnode *n = path[0] == '/' ? vfs_root : cwd;
+    struct vnode *boundary = vfs_task_root();
+    struct vnode *n = path[0] == '/' ? boundary : cwd;
+    if (n && !within_root(n, boundary))
+        return -ENOENT;
     if (!n)
         return -ENOENT;
     vnode_get(n);
@@ -62,6 +85,8 @@ static int resolve(const char *path, struct vnode *cwd, bool follow, unsigned de
         if (!strcmp(name, "."))
             continue;
         if (!strcmp(name, "..")) {
+            if (vnode_same(n, boundary))
+                continue;
             struct vnode *parent = n->parent ? n->parent : n;
             vnode_get(parent);
             vnode_put(n);
@@ -82,6 +107,11 @@ static int resolve(const char *path, struct vnode *cwd, bool follow, unsigned de
             next = m;
         }
         spin_unlock(&mount_lock);
+        if ((next->mode & S_IFMT) == S_IFLNK && no_symlinks) {
+            vnode_put(next);
+            vnode_put(n);
+            return -ELOOP;
+        }
         if ((next->mode & S_IFMT) == S_IFLNK && (follow || *p)) {
             char target[PATH_MAX], combined[PATH_MAX];
             if (next->size >= PATH_MAX || !next->ops->read) {
@@ -104,7 +134,7 @@ static int resolve(const char *path, struct vnode *cwd, bool follow, unsigned de
             strcpy(combined, target);
             strcpy(combined + strlen(target), p);
             vnode_put(next);
-            r = resolve(combined, n, follow, depth + 1, out);
+            r = resolve(combined, n, follow, no_symlinks, depth + 1, out);
             vnode_put(n);
             return r;
         }
@@ -120,10 +150,12 @@ static int resolve(const char *path, struct vnode *cwd, bool follow, unsigned de
 }
 int vfs_lookup(const char *p, struct vnode *cwd, bool follow, struct vnode **out)
 {
-    return resolve(p, cwd, follow, 0, out);
+    return resolve(p, cwd, follow, false, 0, out);
 }
 int vfs_parent(const char *path, struct vnode *cwd, struct vnode **parent, char *name)
 {
+    if (path[0] != '/' && !within_root(cwd, vfs_task_root()))
+        return -ENOENT;
     size_t len = strlen(path);
     if (!len)
         return -ENOENT;
@@ -217,6 +249,7 @@ int vfs_mount(const char *path, struct vnode *cwd, struct vnode *root)
     else {
         vnode_get(root);
         p->mounted = root;
+        vnode_get(p);
         root->parent = p->parent;
     }
     spin_unlock(&mount_lock);
@@ -225,12 +258,14 @@ int vfs_mount(const char *path, struct vnode *cwd, struct vnode *root)
 }
 int vfs_open(const char *path, struct task *t, unsigned flags, unsigned mode, struct file **out)
 {
-    if (flags &
-            ~(3U | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | O_DIRECTORY | O_NONBLOCK | O_CLOEXEC) ||
+    if (flags & ~(3U | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | O_DIRECTORY | O_NONBLOCK |
+                  O_CLOEXEC | O_NOSYMLINKS) ||
         (flags & 3) == 3)
         return -EINVAL;
+    if ((flags & (O_NOSYMLINKS | O_CREAT)) == (O_NOSYMLINKS | O_CREAT))
+        return -ENOTSUP;
     struct vnode *n = NULL;
-    int r = vfs_lookup(path, t->cwd, true, &n);
+    int r = resolve(path, t->cwd, true, flags & O_NOSYMLINKS, 0, &n);
     if (r == -ENOENT && (flags & O_CREAT))
         r = vfs_create(path, t->cwd, S_IFREG | (mode & 0777 & ~t->umask), NULL, &n);
     else if (!r && (flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {

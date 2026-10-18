@@ -1,10 +1,10 @@
+#include "../include/command.h"
 #include <libkario.h>
 #include "tcc.h"
 int main(int argc, char **argv)
 {
-    const char *name = strrchr(argv[0], '/');
-    name = name ? name + 1 : argv[0];
-    bool assembler = !strcmp(name, "as");
+    const char *name = KAIRO_APP_NAME;
+    bool assembler = command_is(as);
     const char *output = assembler ? "a.o" : "a.out";
     TCCState *s = tcc_new();
     if (!s) {

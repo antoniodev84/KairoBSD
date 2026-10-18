@@ -185,3 +185,13 @@ int partscan(const char *p)
 {
     return C(partscan, p, 0, 0, 0, 0, 0);
 }
+
+int chroot(const char *path)
+{
+    return C(chroot, path, 0, 0, 0, 0, 0);
+}
+
+int mountpoint(const char *device, char *path, size_t size)
+{
+    return C(mountpoint, device, path, size, 0, 0, 0);
+}

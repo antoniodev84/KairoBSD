@@ -223,6 +223,40 @@ const char *strerror(int e)
             return "Path too long";
         case ENOTSUP:
             return "Operation not supported";
+        case EADDRINUSE:
+            return "Address already in use";
+        case EADDRNOTAVAIL:
+            return "Address not available";
+        case ENETDOWN:
+            return "Network is down";
+        case ENETUNREACH:
+            return "Network unreachable";
+        case ECONNABORTED:
+            return "Connection aborted";
+        case ECONNRESET:
+            return "Connection reset";
+        case ENOBUFS:
+            return "Network buffers exhausted";
+        case EISCONN:
+            return "Socket already connected";
+        case ENOTCONN:
+            return "Socket not connected";
+        case ECONNREFUSED:
+            return "Connection refused";
+        case EALREADY:
+            return "Connection already in progress";
+        case EINPROGRESS:
+            return "Connection in progress";
+        case EMSGSIZE:
+            return "Message too large";
+        case ENOTSOCK:
+            return "Not a socket";
+        case EDESTADDRREQ:
+            return "Destination required";
+        case EPROTONOSUPPORT:
+            return "Protocol not supported";
+        case EAFNOSUPPORT:
+            return "Address family not supported";
         case ETIMEDOUT:
             return "Device timed out";
         default:

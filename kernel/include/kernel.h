@@ -119,6 +119,8 @@ static inline uint64_t ptr_phys(const void *p)
 }
 void pmm_init(struct limine_memmap_response *);
 uint64_t frame_alloc(void);
+uint64_t dma_alloc(unsigned, uint64_t);
+void dma_free(uint64_t, unsigned);
 void frame_get(uint64_t);
 void frame_put(uint64_t);
 unsigned frame_refs(uint64_t);
@@ -220,7 +222,7 @@ struct task {
     _Alignas(16) uint8_t fpstate[512];
     struct file *fds[MAX_FDS];
     uint8_t fd_flags[MAX_FDS];
-    struct vnode *cwd;
+    struct vnode *cwd, *fs_root;
     char cwd_path[PATH_MAX];
     int waiting;
 };
@@ -278,6 +280,8 @@ struct vnode {
     spinlock_t lock;
 };
 extern struct vnode *vfs_root;
+struct vnode *vfs_task_root(void);
+bool vnode_same(struct vnode *, struct vnode *);
 int vfs_access(struct vnode *, unsigned);
 void vnode_get(struct vnode *);
 void vnode_put(struct vnode *);
@@ -291,6 +295,8 @@ void file_put(struct file *);
 struct vnode *tmpfs_new(uint32_t);
 void vfs_init(const void *, size_t);
 struct vnode *devfs_new(void);
+bool devfs_is_console(struct vnode *);
+void devfs_forget(struct vnode *);
 int devfs_register_block(unsigned);
 struct pci_device {
     uint16_t segment;
@@ -303,6 +309,13 @@ struct pci_device {
 uint32_t pci_read(struct pci_device *, unsigned, unsigned);
 void pci_write(struct pci_device *, unsigned, unsigned, uint32_t);
 void pci_init(void);
+void net_init(void);
+void net_worker(void);
+int rtl8139_probe(struct pci_device *);
+int e1000_probe(struct pci_device *);
+int net_socket(struct task *, unsigned, unsigned, unsigned);
+int net_control(struct task *, unsigned, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                uint64_t);
 int virtio_probe(struct pci_device *);
 int ahci_probe(struct pci_device *);
 struct blockdev {
@@ -321,4 +334,5 @@ int block_register(struct blockdev *);
 int block_io(struct blockdev *, uint64_t, uint32_t, void *, bool);
 int partitions_scan(struct blockdev *);
 int ext2_mount(struct blockdev *, struct vnode **);
+int ext2_mounted_root(struct blockdev *, struct vnode **);
 #endif

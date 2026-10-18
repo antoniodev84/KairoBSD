@@ -1,6 +1,15 @@
 #include <kernel.h>
 static struct vnode_ops ops;
-static struct vnode *dev_root;
+struct devfs_view {
+    struct vnode *root;
+    struct devfs_view *next;
+};
+static struct devfs_view *views;
+static spinlock_t views_lock = SPINLOCK_INIT;
+bool devfs_is_console(struct vnode *node)
+{
+    return node && node->ops == &ops && (uintptr_t)node->data == 1;
+}
 static int read_dev(struct vnode *n, uint64_t off, void *p, size_t len)
 {
     uintptr_t id = (uintptr_t)n->data;
@@ -120,25 +129,68 @@ struct vnode *devfs_new(void)
             n->size = blocks[i - 3].sectors * 512;
         vnode_put(n);
     }
-    dev_root = root;
+    struct devfs_view *view = kmalloc(sizeof(*view));
+    if (!view) {
+        vnode_put(root);
+        return NULL;
+    }
+    view->root = root;
+    vnode_get(root);
+    spin_lock(&views_lock);
+    view->next = views;
+    views = view;
+    spin_unlock(&views_lock);
     return root;
 }
 
+void devfs_forget(struct vnode *root)
+{
+    spin_lock(&views_lock);
+    struct devfs_view **link = &views;
+    while (*link && (*link)->root != root)
+        link = &(*link)->next;
+    struct devfs_view *view = *link;
+    if (view)
+        *link = view->next;
+    spin_unlock(&views_lock);
+    if (view) {
+        vnode_put(view->root);
+        kfree(view);
+    }
+}
 int devfs_register_block(unsigned index)
 {
-    if (!dev_root)
-        return 0;
     if (index >= 32)
         return -EINVAL;
-    struct vnode *n;
-    int r = dev_root->ops->create(dev_root, blocks[index].name, S_IFBLK | 0600, NULL, &n);
-    if (r)
-        return r;
-    n->ops->destroy(n);
-    n->ops = &ops;
-    n->data = (void *)(uintptr_t)(index + 16);
-    n->fs = NULL;
-    n->size = blocks[index].sectors * 512;
-    vnode_put(n);
-    return 0;
+    int result = 0;
+    spin_lock(&views_lock);
+    for (struct devfs_view *view = views; view; view = view->next) {
+        struct vnode *node;
+        result =
+            view->root->ops->create(view->root, blocks[index].name, S_IFBLK | 0600, NULL, &node);
+        if (result)
+            break;
+        node->ops->destroy(node);
+        node->ops = &ops;
+        node->data = (void *)(uintptr_t)(index + 16);
+        node->fs = NULL;
+        node->size = blocks[index].sectors * 512;
+        vnode_put(node);
+    }
+    if (result) {
+        for (struct devfs_view *view = views; view; view = view->next) {
+            struct vnode *node;
+            if (view->root->ops->lookup(view->root, blocks[index].name, &node))
+                continue;
+            bool created = node->ops == &ops && (uintptr_t)node->data == index + 16;
+            vnode_put(node);
+            if (created) {
+                int cleanup = view->root->ops->remove(view->root, blocks[index].name, false);
+                if (cleanup)
+                    kprintf("devfs block registration cleanup failed: %d\n", cleanup);
+            }
+        }
+    }
+    spin_unlock(&views_lock);
+    return result;
 }

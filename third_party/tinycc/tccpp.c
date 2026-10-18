@@ -882,12 +882,8 @@ redo_start:
                     else if (parse_flags & PARSE_FLAG_ASM_FILE)
                         p = parse_line_comment(p - 1);
                 }
-#if !defined(TCC_TARGET_ARM) && !defined(TCC_TARGET_ARM64)
                 else if (parse_flags & PARSE_FLAG_ASM_FILE)
                     p = parse_line_comment(p - 1);
-#else
-
-#endif
                 break;
             _default:
             default:
@@ -900,38 +896,6 @@ the_end:;
     file->buf_ptr = p;
 }
 
-#if 0
-
-static inline int tok_size(const int *p)
-{
-    switch(*p) {
-         
-    case TOK_CINT:
-    case TOK_CUINT:
-    case TOK_CCHAR:
-    case TOK_LCHAR:
-    case TOK_CFLOAT:
-    case TOK_LINENUM:
-        return 1 + 1;
-    case TOK_STR:
-    case TOK_LSTR:
-    case TOK_PPNUM:
-    case TOK_PPSTR:
-        return 1 + 1 + (p[1] + 3) / 4;
-    case TOK_CLONG:
-    case TOK_CULONG:
-	return 1 + LONG_SIZE / 4;
-    case TOK_CDOUBLE:
-    case TOK_CLLONG:
-    case TOK_CULLONG:
-        return 1 + 2;
-    case TOK_CLDOUBLE:
-        return 1 + LDOUBLE_WORDS;
-    default:
-        return 1 + 0;
-    }
-}
-#endif
 
 ST_INLN void tok_str_new(TokenString *s)
 {
@@ -1147,9 +1111,6 @@ static inline void tok_get(int *t, const int **pp, CValue *cv)
     *pp = p;
 }
 
-#if 0
-#define TOK_GET(t, p, c) tok_get(t, p, c)
-#else
 #define TOK_GET(t, p, c)                                                                           \
     do {                                                                                           \
         int _t = **(p);                                                                            \
@@ -1158,7 +1119,6 @@ static inline void tok_get(int *t, const int **pp, CValue *cv)
         else                                                                                       \
             *(t) = _t, ++*(p);                                                                     \
     } while (0)
-#endif
 
 static int macro_is_equal(const int *a, const int *b)
 {
@@ -1518,11 +1478,7 @@ static CachedInclude *search_cached_include(TCCState *s1, const char *filename, 
     s = basename = tcc_basename(filename);
     h = TOK_HASH_INIT;
     while ((c = (unsigned char)*s) != 0) {
-#ifdef _WIN32
-        h = TOK_HASH_FUNC(h, toup(c));
-#else
         h = TOK_HASH_FUNC(h, c);
-#endif
         s++;
     }
     h &= (CACHED_INCLUDES_HASH_SIZE - 1);
@@ -1675,9 +1631,6 @@ ST_FUNC void tccpp_putfile(const char *filename)
         *tcc_basename(buf) = 0;
     }
     pstrcat(buf, sizeof buf, filename);
-#ifdef _WIN32
-    normalize_slashes(buf);
-#endif
     if (0 == strcmp(file->filename, buf))
         return;
 
@@ -2048,18 +2001,7 @@ static void parse_escape_string(CString *outstr, const uint8_t *buf, int is_long
         if (!is_long)
             cstr_ccat(outstr, c);
         else {
-#ifdef TCC_TARGET_PE
-
-            if (c < 0x10000) {
-                cstr_wccat(outstr, c);
-            } else {
-                c -= 0x10000;
-                cstr_wccat(outstr, (c >> 10) + 0xD800);
-                cstr_wccat(outstr, (c & 0x3FF) + 0xDC00);
-            }
-#else
             cstr_wccat(outstr, c);
-#endif
         }
     }
 
@@ -2513,12 +2455,10 @@ redo_no_start:
                     p++;
                     tok = TOK_TWOSHARPS;
                 } else {
-#if !defined(TCC_TARGET_ARM) && !defined(TCC_TARGET_ARM64)
                     if (parse_flags & PARSE_FLAG_ASM_FILE) {
                         p = parse_line_comment(p - 1);
                         goto redo_no_start;
                     } else
-#endif
                     {
                         tok = '#';
                     }
@@ -2820,12 +2760,6 @@ redo_no_start:
             break;
 
         case '@':
-#ifdef TCC_TARGET_ARM
-            if (parse_flags & PARSE_FLAG_ASM_FILE) {
-                p = parse_line_comment(p);
-                goto redo_no_start;
-            }
-#endif
         case '(':
         case ')':
         case '[':
@@ -2943,11 +2877,6 @@ static int *macro_arg_subst(Sym **nested_list, const int *macro_str, Sym *args)
                 cval.str.size = tokcstr.size;
                 cval.str.data = tokcstr.data;
                 tok_str_add2(&str, TOK_PPSTR, &cval);
-#ifdef TCC_TARGET_ARM
-            } else if ((parse_flags & PARSE_FLAG_ASM_FILE) && t == TOK_PPNUM) {
-
-                --macro_str, tok_str_add(&str, '#');
-#endif
             } else {
                 expect("macro parameter after '#'");
             }
@@ -3418,15 +3347,7 @@ ST_INLN void unget_tok(int last_tok)
 }
 
 static const char *const target_os_defs =
-#ifdef TCC_TARGET_PE
-    "_WIN32\0"
-#if PTR_SIZE == 8
-    "_WIN64\0"
-#endif
-#else
-#if defined TCC_TARGET_MACHO
-    "__APPLE__\0"
-#elif TARGETOS_FreeBSD
+#if   TARGETOS_FreeBSD
     "__FreeBSD__ 12\0"
 #elif TARGETOS_FreeBSD_kernel
     "__FreeBSD_kernel__\0"
@@ -3443,7 +3364,6 @@ static const char *const target_os_defs =
 #endif
     "__unix__\0"
     "__unix\0"
-#endif
     ;
 
 static void putdef(CString *cs, const char *p)
@@ -3463,10 +3383,6 @@ static void tcc_predefs(TCCState *s1, CString *cs, int is_asm)
     putdefs(cs, target_machine_defs);
     putdefs(cs, target_os_defs);
 
-#ifdef TCC_TARGET_ARM
-    if (s1->float_abi == ARM_HARD_FLOAT)
-        putdef(cs, "__ARM_PCS_VFP");
-#endif
     if (is_asm)
         putdef(cs, "__ASSEMBLER__");
     if (s1->output_type == TCC_OUTPUT_PREPROCESS)

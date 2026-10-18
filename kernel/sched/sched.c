@@ -214,6 +214,8 @@ int task_spawn(const char *path, struct task *parent, const char *const *argv,
     t->sid = parent ? parent->sid : t->pid;
     t->cwd = parent ? parent->cwd : vfs_root;
     vnode_get(t->cwd);
+    t->fs_root = parent ? parent->fs_root : vfs_root;
+    vnode_get(t->fs_root);
     if (parent) {
         t->uid = parent->uid;
         t->gid = parent->gid;
@@ -269,6 +271,8 @@ int task_fork(struct frame *f)
     t->umask = p->umask;
     t->cwd = p->cwd;
     vnode_get(t->cwd);
+    t->fs_root = p->fs_root;
+    vnode_get(t->fs_root);
     strcpy(t->cwd_path, p->cwd_path);
     t->mmap_next = p->mmap_next;
     for (unsigned i = 0; i < MAX_FDS; i++)
@@ -297,6 +301,8 @@ static void finish_exit(int status)
     }
     vnode_put(t->cwd);
     t->cwd = NULL;
+    vnode_put(t->fs_root);
+    t->fs_root = NULL;
     spin_lock(&sched_lock);
     t->status = status;
     signal_child_locked(t, SIGCHLD, status);
@@ -323,6 +329,7 @@ void task_reap(struct task *t)
     for (unsigned i = 0; i < MAX_FDS; i++)
         file_put(t->fds[i]);
     vnode_put(t->cwd);
+    vnode_put(t->fs_root);
     if (t->root && t->root != kernel_root)
         space_destroy(t->root);
     kfree(t->stack);

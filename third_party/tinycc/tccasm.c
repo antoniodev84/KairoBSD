@@ -931,45 +931,10 @@ static void asm_parse_directive(TCCState *s1, int global)
             next();
             pop_section(s1);
             break;
-#ifdef TCC_TARGET_I386
-        case TOK_ASMDIR_code16: {
-            next();
-            s1->seg_size = 16;
-        } break;
-        case TOK_ASMDIR_code32: {
-            next();
-            s1->seg_size = 32;
-        } break;
-#endif
 #if PTR_SIZE == 8
 
         case TOK_ASMDIR_code64:
             next();
-            break;
-#endif
-#ifdef TCC_TARGET_RISCV64
-        case TOK_ASMDIR_option:
-            next();
-            switch (tok) {
-                case TOK_ASM_rvc:
-                case TOK_ASM_norvc:
-                case TOK_ASM_pic:
-                case TOK_ASM_nopic:
-                case TOK_ASM_relax:
-                case TOK_ASM_norelax:
-                case TOK_ASM_push:
-                case TOK_ASM_pop:
-
-                    next();
-                    break;
-                case TOK_ASM_arch:
-
-                    tcc_error("unimp .option '.%s'", get_tok_str(tok, NULL));
-                    break;
-                default:
-                    tcc_error("unknown .option '.%s'", get_tok_str(tok, NULL));
-                    break;
-            }
             break;
 #endif
 
@@ -990,29 +955,6 @@ static void asm_parse_directive(TCCState *s1, int global)
             asm_expr(s1, &e);
             skip(',');
             reloc_name = get_tok_str(tok, NULL);
-#if defined(TCC_TARGET_ARM64)
-            if (!strcmp(reloc_name, "R_AARCH64_CALL26"))
-                reloc_type = R_AARCH64_CALL26;
-#elif defined(TCC_TARGET_RISCV64)
-            if (!strcmp(reloc_name, "R_RISCV_CALL") || !strcmp(reloc_name, "R_RISCV_CALL_PLT"))
-                reloc_type = R_RISCV_CALL;
-            else if (!strcmp(reloc_name, "R_RISCV_BRANCH"))
-                reloc_type = R_RISCV_BRANCH;
-            else if (!strcmp(reloc_name, "R_RISCV_JAL"))
-                reloc_type = R_RISCV_JAL;
-            else if (!strcmp(reloc_name, "R_RISCV_PCREL_HI20"))
-                reloc_type = R_RISCV_PCREL_HI20;
-            else if (!strcmp(reloc_name, "R_RISCV_PCREL_LO12_I"))
-                reloc_type = R_RISCV_PCREL_LO12_I;
-            else if (!strcmp(reloc_name, "R_RISCV_PCREL_LO12_S"))
-                reloc_type = R_RISCV_PCREL_LO12_S;
-            else if (!strcmp(reloc_name, "R_RISCV_32_PCREL"))
-                reloc_type = R_RISCV_32_PCREL;
-            else if (!strcmp(reloc_name, "R_RISCV_32"))
-                reloc_type = R_RISCV_32;
-            else if (!strcmp(reloc_name, "R_RISCV_64"))
-                reloc_type = R_RISCV_64;
-#endif
             if (reloc_type < 0)
                 tcc_error("unimp: reloc '%s' unknown", reloc_name);
             next();
@@ -1041,13 +983,11 @@ static int tcc_assemble_internal(TCCState *s1, int do_preprocess, int global)
         tcc_debug_line(s1);
         parse_flags |= PARSE_FLAG_LINEFEED;
     redo:
-#if !defined(TCC_TARGET_ARM64)
         if (tok == '#') {
 
             while (tok != TOK_LINEFEED)
                 next();
         } else
-#endif
             if (tok >= TOK_ASMDIR_FIRST && tok <= TOK_ASMDIR_LAST) {
             asm_parse_directive(s1, global);
         } else if (tok == TOK_PPNUM) {
@@ -1106,9 +1046,6 @@ static void tcc_assemble_inline(TCCState *s1, const char *str, int len, int glob
 {
     const int *saved_macro_ptr = macro_ptr;
     int dotid = set_idnum('.', IS_ID);
-#if !defined(TCC_TARGET_RISCV64) && !defined(TCC_TARGET_X86_64)
-    int dolid = set_idnum('$', 0);
-#endif
 
     tcc_open_bf(s1, ":asm:", len);
     memcpy(file->buffer, str, len);
@@ -1116,9 +1053,6 @@ static void tcc_assemble_inline(TCCState *s1, const char *str, int len, int glob
     tcc_assemble_internal(s1, 0, global);
     tcc_close();
 
-#if !defined(TCC_TARGET_RISCV64) && !defined(TCC_TARGET_X86_64)
-    set_idnum('$', dolid);
-#endif
     set_idnum('.', dotid);
     macro_ptr = saved_macro_ptr;
 }
@@ -1178,12 +1112,6 @@ static void subst_asm_operands(ASMOperand *operands, int nb_operands, CString *o
             modifier = 0;
             if (*str == 'c' || *str == 'n' || *str == 'b' || *str == 'w' || *str == 'h' ||
                 *str == 'k' || *str == 'q' || *str == 'l' ||
-#ifdef TCC_TARGET_ARM64
-                *str == 'x' || *str == 's' || *str == 'd' || *str == 'Z' ||
-#endif
-#ifdef TCC_TARGET_RISCV64
-                *str == 'z' ||
-#endif
 
                 *str == 'P')
                 modifier = *str++;
@@ -1247,9 +1175,6 @@ static void parse_asm_operands(ASMOperand *operands, int *nb_operands_ptr, int i
                 if ((vtop->r & VT_LVAL) &&
                     ((vtop->r & VT_VALMASK) == VT_LLOCAL || (vtop->r & VT_VALMASK) < VT_CONST) &&
                     !strchr(op->constraint, 'm')
-#ifdef TCC_TARGET_ARM64
-                    && !strchr(op->constraint, 'Q') && !strstr(op->constraint, "Ump")
-#endif
                 ) {
                     gv(RC_INT);
                 }
